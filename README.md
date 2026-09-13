@@ -1,75 +1,102 @@
-# 中国城市逐日市际旅游流重建
+# Reconstructing Daily Intercity Tourism Flows in China
 
-本仓库提供用于重建中国城市逐日市际旅游流的 Python 流程。研究范围为2012—2021年、339个地级及以上研究单元。流程结合在线游记中的城市间访问联系、城市年度国内旅游接待人次、旅游POI、社会经济、气候和日历数据，输出经年度总量约束的城市逐日接待人次及市际OD旅游流估计结果。
+This repository provides a Python workflow for reconstructing daily intercity tourism flows across China from 2012 to 2021. The study covers 339 prefecture-level and above administrative units. It combines city-to-city travel links extracted from online travel blogs with annual domestic tourist arrivals, tourism points of interest (POIs), socioeconomic indicators, weather records, and calendar information.
 
-## 方法概述
+The workflow produces city-level daily tourism arrivals and annual files of estimated directed origin-destination (OD) tourism flows, calibrated against annual city-level domestic tourism totals.
 
-1. 年度旅游接待人次补全：以旅游POI为解释变量，估计包含省份—年份固定效应的对数线性OLS模型；保留已有统计值，并对缺失值进行预测和Duan smearing偏差修正。
+## Workflow
 
-2. 城市逐日接待人次估算：以游记目的地逐日频次为监督信号，使用LightGBM学习天气、日历、城市属性和月度季节形态对日度变化的影响；随后在城市—年份层面归一化，使逐日值加总等于年度接待人次。
+The pipeline consists of three consecutive stages.
 
-3. 逐日市际OD流量分配：以游记OD权重为监督信号，使用LightGBM学习客源地推力、目的地拉力、空间距离阻力、气候和日历效应；对每日目的地入流进行归一化，使其加总等于对应城市的逐日接待人次。
+1. **Annual domestic tourism estimation.** A log-linear ordinary least squares model with province-year fixed effects is used to complete missing annual domestic tourist arrivals. Observed statistical records are retained, while missing values are estimated from tourism POIs and corrected using the Duan smearing estimator.
 
-输出为模型估计的旅游流量。游记用于刻画相对空间联系和时间变化，年度国内旅游接待人次用于提供规模约束。
+2. **Daily city-level tourism estimation.** A LightGBM model learns daily variation in destination-city travel-blog counts from weather, calendar structure, city attributes, and city-specific monthly seasonality. The predicted daily values are then normalized within each city-year so that their annual sum equals the annual domestic tourism total.
 
-## 运行环境
+3. **Daily intercity OD flow allocation.** A second LightGBM model learns relative OD weights from travel-blog OD records using origin push factors, destination pull factors, spatial resistance, weather, and calendar features. Predicted OD weights are normalized by destination and date so that total inbound flow equals the estimated daily tourism arrivals of each destination city.
 
-建议使用Python 3.9或更高版本。
+The outputs are model-based estimates. Travel blogs provide information on relative intercity connectivity and temporal variation, whereas annual domestic tourism statistics provide the volume constraint.
+
+## Repository Structure
+
+```text
+.
+├── full_pipeline_tourism_od.py
+└── README.md
+```
+
+All output files are written to the directory specified by `DATA_DIR` at the beginning of the script.
+
+## Requirements
+
+Python 3.9 or later is recommended.
 
 ```bash
 pip install pandas numpy statsmodels lightgbm openpyxl
 ```
 
-运行前修改脚本顶部的数据目录：
+Before running the script, update `DATA_DIR` to the local directory containing the input data. The same directory is used for generated outputs.
 
 ```python
-DATA_DIR = Path(r"D:\your_data_directory")
+DATA_DIR = Path(r"D:\\your_data_directory")
 OUTPUT_DIR = DATA_DIR
 ```
 
-随后运行：
+Run the workflow with:
 
 ```bash
 python full_pipeline_tourism_od.py
 ```
 
-## 输入数据
+## Input Data
 
-| 文件名 | 用途 |
+The following files are required. City names, dates, years, and the ordering of the distance matrix must be harmonized before execution.
+
+| File | Key fields or worksheet | Purpose |
+|---|---|---|
+| `城市维表.csv` | `city_name`, `city_code_ref` | Defines the study cities and their order. |
+| `国内旅游人数.xlsx` | `Sheet2`; `省份`, `城市`, `2012年`-`2021年` | Annual domestic tourist arrivals by city. |
+| `city_year_tourism_poi_counts.csv` | `city`, `province`, `year`, `uniq10_n`, and POI counts | Annual tourism-resource endowment. |
+| `Edges_City_By_Departure_Date.csv` | `Flow_Date`, `Source_City_ZH`, `Target_City_ZH`, `Trip_Count`, `Trip_Normalized_Weight` | Daily intercity links derived from travel blogs and model supervision data. |
+| `逐日日历_2012-2021.csv` | `flow_date` and calendar/holiday fields | Calendar and holiday features. |
+| `city_distance_matrix_339.csv` | Square matrix indexed by city names | Intercity distance matrix. |
+| `中国城市数据面板数据（2000-2024年）.xlsx` | `线性插值`; year, city, province, GDP, tertiary industry, registered population, GDP per capita | City-level socioeconomic features. |
+| `城市逐日气候_2012.csv` to `城市逐日气候_2021.csv` | `flow_date`, `city_name`, `tmean_c`, `precip_mm` | Daily city-level weather features. |
+
+The script matches records by city name rather than administrative code.
+
+## Output Data
+
+| File | Description |
 |---|---|
-| `城市维表.csv` | 定义研究城市及其顺序。 |
-| `国内旅游人数.xlsx` | 城市年度国内旅游接待人次。 |
-| `city_year_tourism_poi_counts.csv` | 年度旅游资源禀赋。 |
-| `Edges_City_By_Departure_Date.csv` | 游记提取的逐日市际联系及模型监督信号。 |
-| `逐日日历_2012-2021.csv` | 日历与假期特征。 |
-| `city_distance_matrix_339.csv` | 城市间距离矩阵。 |
-| `中国城市数据面板数据（2000-2024年）.xlsx` | 城市社会经济特征。 |
-| `城市逐日气候_2012.csv`—`城市逐日气候_2021.csv` | 城市逐日气候特征。 |
+| `annual_tourism_panel_339x10.csv` | Annual domestic tourism panel for 339 cities from 2012 to 2021. |
+| `ols_model_summary.txt` | Summary of the annual tourism estimation model. |
+| `daily_tourism_panel_339_v2.csv` | Daily city-level tourism arrivals. |
+| `step3_model_metrics.csv`, `step3_feature_importance.csv` | Performance records and feature importance for the daily city-level model. |
+| `od_tourism_flow_2012.csv` to `od_tourism_flow_2021.csv` | Annual files containing daily directed intercity OD tourism-flow estimates. |
+| `step4_model_metrics.csv`, `od_flow_feature_importance.csv` | Performance records and feature importance for the OD model. |
+| `od_flow_lgbm_model.txt` | Trained OD LightGBM model. |
+| `feature_selection_doc.txt` | Description of the OD feature system. |
 
-脚本按城市名称匹配。城市名称、日期、年份和距离矩阵顺序需保持一致。
+Each OD flow file contains four principal fields:
 
-## 输出文件
+- `origin`: origin city;
+- `dest`: destination city;
+- `date`: date indexed by the departure date of the travel blog;
+- `flow_10k`: estimated tourism flow, in units of 10,000 person-trips.
 
-| 文件名 | 内容 |
-|---|---|
-| `annual_tourism_panel_339x10.csv` | 城市年度旅游接待人次面板。 |
-| `daily_tourism_panel_339_v2.csv` | 城市逐日旅游接待人次面板。 |
-| `od_tourism_flow_2012.csv`—`od_tourism_flow_2021.csv` | 分年度保存的逐日市际OD旅游流估计结果。 |
-| `step3_model_metrics.csv`、`step4_model_metrics.csv` | 两个LightGBM模型的性能记录。 |
-| `step3_feature_importance.csv`、`od_flow_feature_importance.csv` | 特征重要性。 |
-| `od_flow_lgbm_model.txt` | 已训练的OD模型。 |
+## Runtime Notes
 
-年度OD文件的核心字段为：`origin`（出发城市）、`dest`（目的地城市）、`date`（游记出发日归集的日期索引）和`flow_10k`（估计旅游流量，单位为万人次）。
+- When `SKIP_PREDICT_IF_EXISTS = True` and all annual OD files already exist, the script skips the full OD prediction stage to avoid overwriting large result files. The preceding model-training and model-information export stages are still executed.
+- Setting `SKIP_PREDICT_IF_EXISTS = False` regenerates all OD files from 2012 to 2021. Ensure that adequate disk space is available and that existing outputs can be replaced.
+- Both LightGBM models use a fixed random seed of 42. The daily city-level model is split by city, and the OD model is split by directed city pair for training and validation.
 
-## 运行说明
+## Data Definitions and Limitations
 
-- 当`SKIP_PREDICT_IF_EXISTS = True`且全部年度OD文件已经存在时，脚本跳过全量OD预测，避免重写大体量结果文件。
-- 改为`False`后，将重新生成2012—2021年全部OD文件。
-- 城市模型和OD模型均固定使用随机种子42；训练/验证分别按城市和有向OD城市对划分。
+- All intercity transitions within one travel blog are assigned to the blog's `Departure_Date`. Therefore, `date` is a departure-date indexing variable rather than the actual arrival date of every travel segment.
+- Annual domestic tourist arrivals and intercity inbound tourism flows do not have identical statistical definitions. Annual arrivals are used as a destination-level volume constraint; the resulting OD values should be interpreted as annual-total-calibrated estimates of intercity tourism flows.
+- Unrecorded OD destinations may be sampled as zero-label observations during model training. These zero labels do not indicate that tourism travel did not occur in the real world.
+- The output is intended to characterize relative spatial patterns, flow directions, and daily variation. Interpretations of absolute volumes should consider travel-blog coverage, sharing behavior, and differences in statistical definitions.
 
-## 口径说明
+## Data Availability and Reuse
 
-- 同一篇游记中的全部市际转移统一按`Departure_Date`归集，因此`date`是游记出发日归集索引，并不表示每一段行程的实际抵达日期。
-- 城市年度国内旅游接待人次用于目的地日度入流的总量约束，结果应表述为“经年度接待规模校准的市际旅游流估计值”。
-- 未在游记中记录的OD在模型训练中可能被抽样为零标签；这不等同于真实世界不存在旅游流动。
-- 结果适合刻画城市间旅游联系的相对格局、方向和日度变化；进行绝对规模解释时，应讨论游记覆盖范围和统计口径差异。
+Raw travel blogs, POIs, weather records, statistical yearbook data, and other source data are not included in this repository because their distribution may be subject to platform terms, licenses, or other access restrictions. When using this workflow or derived data, please describe the data sources, study units, study period, annual volume constraint, and departure-date aggregation rule.
